@@ -10,6 +10,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{self, Poll};
 use std::time::Duration;
+use std::collections::HashMap;
 
 use futures_util::future::{self, Either, FutureExt, TryFutureExt};
 use http::uri::Scheme;
@@ -1274,6 +1275,14 @@ impl Builder {
     #[cfg_attr(docsrs, doc(cfg(feature = "http1")))]
     pub fn http1_title_case_headers(&mut self, val: bool) -> &mut Self {
         self.h1_builder.title_case_headers(val);
+        self
+    }
+
+    /// Set origin header names to be used in HTTP/1 connections.
+    #[cfg(feature = "http1")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "http1")))]
+    pub fn http1_origin_header_names(&mut self, val: HashMap<String, String>) -> &mut Self {
+        self.h1_builder.origin_header_names(val);
         self
     }
 
