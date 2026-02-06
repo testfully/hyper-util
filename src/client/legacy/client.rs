@@ -6,7 +6,7 @@
 
 use std::error::Error as StdError;
 use std::fmt;
-use std::future::Future;
+use std::future::{poll_fn, Future};
 use std::pin::Pin;
 use std::task::{self, Poll};
 use std::time::Duration;
@@ -26,7 +26,6 @@ use super::connect::HttpConnector;
 use super::connect::{Alpn, Connect, Connected, Connection};
 use super::pool::{self, Ver};
 
-use crate::common::future::poll_fn;
 use crate::common::{lazy as hyper_lazy, timer, Exec, Lazy, SyncWrapper};
 
 type BoxSendFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -303,7 +302,7 @@ where
                     let hostname = uri.host().expect("authority implies host");
                     if let Some(port) = get_non_default_port(&uri) {
                         let s = format!("{hostname}:{port}");
-                        HeaderValue::from_str(&s)
+                        HeaderValue::from_maybe_shared(bytes::Bytes::from(s))
                     } else {
                         HeaderValue::from_str(hostname)
                     }
@@ -338,7 +337,7 @@ where
                         e!(SendRequest, err.into_error())
                             .with_connect_info(pooled.conn_info.clone()),
                     ))
-                }
+                };
             }
         };
 
@@ -359,21 +358,8 @@ where
         // It won't be ready if there is a body to stream.
         if pooled.is_http2() || !pooled.is_pool_enabled() || pooled.is_ready() {
             drop(pooled);
-        } else if !res.body().is_end_stream() {
-            //let (delayed_tx, delayed_rx) = oneshot::channel::<()>();
-            //res.body_mut().delayed_eof(delayed_rx);
-            let on_idle = poll_fn(move |cx| pooled.poll_ready(cx)).map(move |_| {
-                // At this point, `pooled` is dropped, and had a chance
-                // to insert into the pool (if conn was idle)
-                //drop(delayed_tx);
-            });
-
-            self.exec.execute(on_idle);
         } else {
-            // There's no body to delay, but the connection isn't
-            // ready yet. Only re-insert when it's ready
             let on_idle = poll_fn(move |cx| pooled.poll_ready(cx)).map(|_| ());
-
             self.exec.execute(on_idle);
         }
 
@@ -923,12 +909,6 @@ fn absolute_form(uri: &mut Uri) {
         uri.authority().is_some(),
         "absolute_form needs an authority"
     );
-    // If the URI is to HTTPS, and the connector claimed to be a proxy,
-    // then it *should* have tunneled, and so we don't want to send
-    // absolute-form in that case.
-    if uri.scheme() == Some(&Scheme::HTTPS) {
-        origin_form(uri);
-    }
 }
 
 fn authority_form(uri: &mut Uri) {

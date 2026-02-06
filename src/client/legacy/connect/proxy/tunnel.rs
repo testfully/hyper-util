@@ -2,9 +2,8 @@ use std::error::Error as StdError;
 use std::future::Future;
 use std::marker::{PhantomData, Unpin};
 use std::pin::Pin;
-use std::task::{self, Poll};
+use std::task::{self, ready, Poll};
 
-use futures_core::ready;
 use http::{HeaderMap, HeaderValue, Uri};
 use hyper::rt::{Read, Write};
 use pin_project_lite::pin_project;
@@ -15,7 +14,7 @@ use tower_service::Service;
 /// This is a connector that can be used by the `legacy::Client`. It wraps
 /// another connector, and after getting an underlying connection, it creates
 /// an HTTP CONNECT tunnel over it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tunnel<C> {
     headers: Headers,
     inner: C,

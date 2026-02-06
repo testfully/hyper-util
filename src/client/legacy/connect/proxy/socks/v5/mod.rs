@@ -4,11 +4,8 @@ pub use errors::*;
 mod messages;
 use messages::*;
 
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::task::{Context, Poll};
 
 use http::Uri;
 use hyper::rt::{Read, Write};
@@ -16,12 +13,12 @@ use tower_service::Service;
 
 use bytes::BytesMut;
 
-use pin_project_lite::pin_project;
+use super::{Handshaking, SocksError};
 
 /// Tunnel Proxy via SOCKSv5
 ///
 /// This is a connector that can be used by the `legacy::Client`. It wraps
-/// another connector, and after getting an underlying connection, it established
+/// another connector, and after getting an underlying connection, it establishes
 /// a TCP tunnel over it using SOCKSv5.
 #[derive(Debug, Clone)]
 pub struct SocksV5<C> {
@@ -48,23 +45,6 @@ enum State {
     ReadingProxyRes,
 }
 
-pin_project! {
-    // Not publicly exported (so missing_docs doesn't trigger).
-    //
-    // We return this `Future` instead of the `Pin<Box<dyn Future>>` directly
-    // so that users don't rely on it fitting in a `Pin<Box<dyn Future>>` slot
-    // (and thus we can change the type in the future).
-    #[must_use = "futures do nothing unless polled"]
-    #[allow(missing_debug_implementations)]
-    pub struct Handshaking<F, T, E> {
-        #[pin]
-        fut: BoxHandshaking<T, E>,
-        _marker: std::marker::PhantomData<F>
-    }
-}
-
-type BoxHandshaking<T, E> = Pin<Box<dyn Future<Output = Result<T, super::SocksError<E>>> + Send>>;
-
 impl<C> SocksV5<C> {
     /// Create a new SOCKSv5 handshake service.
     ///
@@ -84,8 +64,9 @@ impl<C> SocksV5<C> {
     /// Use User/Pass authentication method during handshake.
     ///
     /// Username and Password must be maximum of 255 characters each.
-    /// 0 length strings are allowed despite RFC prohibiting it. This is done so that
-    /// for compatablity with server implementations that require it for IP authentication.
+    /// 0 length strings are allowed despite RFC prohibiting it. This is done for
+    /// compatablity with server implementations that use empty credentials
+    /// to allow returning error codes during IP authentication.
     pub fn with_auth(mut self, user: String, pass: String) -> Self {
         self.config.proxy_auth = Some((user, pass));
         self
@@ -102,10 +83,10 @@ impl<C> SocksV5<C> {
 
     /// Send all messages of the handshake optmistically (without waiting for server response).
     ///
-    /// Typical SOCKS handshake with auithentication takes 3 round trips. Optimistic sending
+    /// A typical SOCKS handshake with user/pass authentication takes 3 round trips Optimistic sending
     /// can reduce round trip times and dramatically increase speed of handshake at the cost of
     /// reduced portability; many server implementations do not support optimistic sending as it
-    /// is not defined in the RFC (RFC 1928).
+    /// is not defined in the RFC.
     ///
     /// Recommended to ensure connector works correctly without optimistic sending before trying
     /// with optimistic sending.
@@ -126,12 +107,7 @@ impl SocksConfig {
         }
     }
 
-    async fn execute<T, E>(
-        self,
-        mut conn: T,
-        host: String,
-        port: u16,
-    ) -> Result<T, super::SocksError<E>>
+    async fn execute<T, E>(self, mut conn: T, host: String, port: u16) -> Result<T, SocksError<E>>
     where
         T: Read + Write + Unpin,
     {
@@ -142,7 +118,7 @@ impl SocksConfig {
                     let socket = (host, port)
                         .to_socket_addrs()?
                         .next()
-                        .ok_or(super::SocksError::DnsFailure)?;
+                        .ok_or(SocksError::DnsFailure)?;
 
                     Address::Socket(socket)
                 } else {
@@ -272,11 +248,11 @@ where
     C::Error: Send + 'static,
 {
     type Response = C::Response;
-    type Error = super::SocksError<C::Error>;
+    type Error = SocksError<C::Error>;
     type Future = Handshaking<C::Future, C::Response, C::Error>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx).map_err(super::SocksError::Inner)
+        self.inner.poll_ready(cx).map_err(SocksError::Inner)
     }
 
     fn call(&mut self, dst: Uri) -> Self::Future {
@@ -285,12 +261,9 @@ where
 
         let fut = async move {
             let port = dst.port().map(|p| p.as_u16()).unwrap_or(443);
-            let host = dst
-                .host()
-                .ok_or(super::SocksError::MissingHost)?
-                .to_string();
+            let host = dst.host().ok_or(SocksError::MissingHost)?.to_string();
 
-            let conn = connecting.await.map_err(super::SocksError::Inner)?;
+            let conn = connecting.await.map_err(SocksError::Inner)?;
             config.execute(conn, host, port).await
         };
 
@@ -298,16 +271,5 @@ where
             fut: Box::pin(fut),
             _marker: Default::default(),
         }
-    }
-}
-
-impl<F, T, E> Future for Handshaking<F, T, E>
-where
-    F: Future<Output = Result<T, E>>,
-{
-    type Output = Result<T, super::SocksError<E>>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().fut.poll(cx)
     }
 }

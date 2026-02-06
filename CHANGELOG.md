@@ -1,3 +1,43 @@
+# 0.1.20 (2026-02-02)
+
+- Fix `proxy::Matcher` to properly match domains regardless of casing
+- Fix system proxy matcher dependency on macOS when used in sandboxed environements.
+- Increased MSRV to 1.64.
+
+# 0.1.19 (2025-12-03)
+
+- Add `client::pool` module for composable pools. Enable with the `client-pool` feature.
+- Add `pool::singleton` for sharing a single cloneable connection.
+- Add `pool::cache` for caching a list of connections.
+- Add `pool::negotiate` for combining two pools with upgrade and fallback negotiation.
+- Add `pool::map` for customizable mapping of keys and connections.
+
+# 0.1.18 (2025-11-13)
+
+- Fix `rt::TokioTimer` to support Tokio's paused time.
+- Fix `client::proxy::match::Matcher` to parse auth without passwords.
+
+# 0.1.17 (2025-09-15)
+
+- Fix `legacy::Client` to allow absolute-form URIs when `Connected::proxy(true)` is passed and the scheme is `https`.
+
+# 0.1.16 (2025-07-22)
+
+- Add `impl Clone` for `proxy::Tunnel` service.
+- Fix `proxy::Matcher` to detect SOCKS4 schemes.
+- Fix `legacy::Client` pool idle checker to trigger less aggresively, saving CPU.
+
+# 0.1.15 (2025-07-07)
+
+- Add header casing options to `auto::Builder`.
+- Fix `proxy::Socksv5` to check for enough bytes before parsing ipv6 responses.
+- Fix including `client-proxy` in the `full` feature set.
+
+# 0.1.14 (2025-06-04)
+
+- Fix `HttpConnector` to defer address family order to resolver sort order.
+- Fix `proxy::Matcher` to find HTTPS system proxies on Windows.
+
 # 0.1.13 (2025-05-27)
 
 - Fix `HttpConnector` to always prefer IPv6 addresses first, if happy eyeballs is enabled.
